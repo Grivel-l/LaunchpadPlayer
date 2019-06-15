@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <string.h>
 #include <libusb-1.0/libusb.h>
 #include <SDL2/SDL_audio.h>
@@ -16,7 +17,6 @@ static libusb_device  *getPad(libusb_device **list) {
     if ((desc.idVendor == 0x1235 && desc.idProduct == 0x000e) ||
         (desc.idVendor == 0x09e8 && desc.idProduct == 0x0076) ||
         (desc.idVendor == 0x09e8 && desc.idProduct == 0x0075)) {
-      dprintf(2, "Found launchpad\n");
       return (list[i]);
     }
     i += 1;
@@ -24,21 +24,20 @@ static libusb_device  *getPad(libusb_device **list) {
   return (NULL);
 }
 
-void    hey(void *userData, Uint8 *stream, int len) {
-  (void)userData;
-  (void)stream;
-  (void)len;
-  dprintf(1, "HelloWorld\n");
+static int  getKeyNbr(int nbr) {
+  return ((8 * (nbr / 16)) + (nbr % 16));
 }
 
-static int  play_audio(void) {
+static void *play_audio(void *data) {
   SDL_AudioDeviceID dev;
   SDL_AudioSpec     spec;
   Uint32            length;
   Uint8             *buffer;
-   
-  spec.callback = hey;
-  SDL_LoadWAV("./sounds/1.wav", &spec, &buffer, &length);
+  char              soundName[16];
+
+  sprintf(soundName, "./sounds/%i.wav", getKeyNbr(*((unsigned char *)data)));
+  if (SDL_LoadWAV(soundName, &spec, &buffer, &length) == NULL)
+    return (NULL);
   dev = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
   SDL_QueueAudio(dev, buffer, length);
   SDL_PauseAudioDevice(dev, 0);
@@ -46,13 +45,12 @@ static int  play_audio(void) {
     ;
   SDL_CloseAudioDevice(dev);
   SDL_FreeWAV(buffer);
-  return (0);
+  return (data);
 }
 
 static int  handle_pad(libusb_device *pad) {
   int             error;
   unsigned char   data[150];
-  /* char        c[200]; */
   libusb_device_handle  *handle;
 
   if (libusb_open(pad, &handle) != 0)
@@ -74,8 +72,8 @@ static int  handle_pad(libusb_device *pad) {
       dprintf(2, "Couldn't receive info %s\n", libusb_strerror(error));
     if (data[1] == 0)
       continue ;
-    play_audio();
-    dprintf(2, "Data: %i, %i, %i, %i, %i, %i\n", data[0],data[1], data[2],data[3],data[4],data[5]);
+    pthread_t thread;
+    pthread_create(&thread, NULL, play_audio, &(data[0]));
   }
   libusb_release_interface(handle, 0);
   libusb_close(handle);
