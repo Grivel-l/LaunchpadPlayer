@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <libusb-1.0/libusb.h>
+#include <SDL2/SDL_audio.h>
+#include <SDL2/SDL.h>
 
 static libusb_device  *getPad(libusb_device **list) {
   size_t        i;
@@ -22,10 +24,35 @@ static libusb_device  *getPad(libusb_device **list) {
   return (NULL);
 }
 
+void    hey(void *userData, Uint8 *stream, int len) {
+  (void)userData;
+  (void)stream;
+  (void)len;
+  dprintf(1, "HelloWorld\n");
+}
+
+static int  play_audio(void) {
+  SDL_AudioDeviceID dev;
+  SDL_AudioSpec     spec;
+  Uint32            length;
+  Uint8             *buffer;
+   
+  spec.callback = hey;
+  SDL_LoadWAV("./sounds/1.wav", &spec, &buffer, &length);
+  dev = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
+  SDL_QueueAudio(dev, buffer, length);
+  SDL_PauseAudioDevice(dev, 0);
+  while (SDL_GetQueuedAudioSize(dev) != 0)
+    ;
+  SDL_CloseAudioDevice(dev);
+  SDL_FreeWAV(buffer);
+  return (0);
+}
+
 static int  handle_pad(libusb_device *pad) {
   int             error;
   unsigned char   data[150];
-  char        c[200];
+  /* char        c[200]; */
   libusb_device_handle  *handle;
 
   if (libusb_open(pad, &handle) != 0)
@@ -43,14 +70,11 @@ static int  handle_pad(libusb_device *pad) {
     return (-1);
   }
   while (1) {
-    memset(c, 0, 200);
     if ((error = libusb_interrupt_transfer(handle, 0x81, data, 150, NULL, 0)) != 0)
       dprintf(2, "Couldn't receive info %s\n", libusb_strerror(error));
-    strcat(c, "mplayer sounds/");
-    c[strlen(c)] = data[0] + 48;
-    strcat(c, ".wav");
-    if (data[1] != 0) 
-      system(c);
+    if (data[1] == 0)
+      continue ;
+    play_audio();
     dprintf(2, "Data: %i, %i, %i, %i, %i, %i\n", data[0],data[1], data[2],data[3],data[4],data[5]);
   }
   libusb_release_interface(handle, 0);
@@ -72,6 +96,11 @@ int   main(void) {
   }
   if ((pad = getPad(list)) == NULL) {
     dprintf(2, "Couldn't find any device\n");
+    libusb_free_device_list(list, 1);
+    libusb_exit(NULL);
+    return (1);
+  }
+  if (SDL_Init(SDL_INIT_AUDIO) == -1) {
     libusb_free_device_list(list, 1);
     libusb_exit(NULL);
     return (1);
