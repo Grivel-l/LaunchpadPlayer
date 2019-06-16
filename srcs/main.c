@@ -1,22 +1,13 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <string.h>
-#include <libusb-1.0/libusb.h>
-#include <SDL2/SDL_audio.h>
-#include <SDL2/SDL.h>
+#include "pad.h"
 
 static libusb_device  *getPad(libusb_device **list) {
-  size_t        i;
+  size_t                          i;
   struct libusb_device_descriptor desc;
 
   i = 0;
   while (list[i]) {
     libusb_get_device_descriptor(list[i], &desc);
-    if ((desc.idVendor == 0x1235 && desc.idProduct == 0x000e) ||
-        (desc.idVendor == 0x09e8 && desc.idProduct == 0x0076) ||
-        (desc.idVendor == 0x09e8 && desc.idProduct == 0x0075)) {
+    if ((desc.idVendor == 0x1235 && desc.idProduct == 0x000e)) {
       return (list[i]);
     }
     i += 1;
@@ -48,17 +39,21 @@ static void *play_audio(void *data) {
   return (data);
 }
 
-static int  handle_pad(libusb_device *pad) {
-  int             error;
-  unsigned char   data[150];
+static int  handlePad(libusb_device *pad) {
+  int                   error;
+  pthread_t             thread;
+  unsigned char         data[2];
   libusb_device_handle  *handle;
 
-  if (libusb_open(pad, &handle) != 0)
+  if (libusb_open(pad, &handle) != 0) {
+    dprintf(2, "Couldn't open libusb\n");
     return (-1);
-  memset(data, 0, 150);
+  }
+  memset(data, 0, 2);
   if (libusb_kernel_driver_active(handle, 0)) {
     if (libusb_detach_kernel_driver(handle, 0) != 0) {
       dprintf(2, "Couldn't detach kernel driver\n");
+      libusb_close(handle);
       return (-1);
     }
   }
@@ -72,12 +67,19 @@ static int  handle_pad(libusb_device *pad) {
       dprintf(2, "Couldn't receive info %s\n", libusb_strerror(error));
     if (data[1] == 0)
       continue ;
-    pthread_t thread;
     pthread_create(&thread, NULL, play_audio, &(data[0]));
   }
   libusb_release_interface(handle, 0);
   libusb_close(handle);
   return (0);
+}
+
+int   freeExit(char *error, libusb_device **list) {
+    if (error != NULL)
+      dprintf(2, "%s\n", error);
+    libusb_free_device_list(list, 1);
+    libusb_exit(NULL);
+    return (1);
 }
 
 int   main(void) {
@@ -92,18 +94,12 @@ int   main(void) {
     dprintf(2, "Couldn't get devices list\n");
     return (1);
   }
-  if ((pad = getPad(list)) == NULL) {
-    dprintf(2, "Couldn't find any device\n");
-    libusb_free_device_list(list, 1);
-    libusb_exit(NULL);
-    return (1);
-  }
-  if (SDL_Init(SDL_INIT_AUDIO) == -1) {
-    libusb_free_device_list(list, 1);
-    libusb_exit(NULL);
-    return (1);
-  }
-  handle_pad(pad);
+  if ((pad = getPad(list)) == NULL)
+    return (freeExit("Couldn't find any device\n", list));
+  if (SDL_Init(SDL_INIT_AUDIO) == -1)
+    return (freeExit("Couldn't init SDL\n", list));
+  if (handlePad(pad) == -1)
+    return (freeExit(NULL, list));
   libusb_free_device_list(list, 1);
   libusb_exit(NULL);
   return (0);
