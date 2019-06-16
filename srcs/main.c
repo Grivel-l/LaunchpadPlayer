@@ -29,8 +29,15 @@ static void *play_audio(void *data) {
   sprintf(soundName, "./sounds/%i.wav", getKeyNbr(*((unsigned char *)data)));
   if (SDL_LoadWAV(soundName, &spec, &buffer, &length) == NULL)
     return (NULL);
-  dev = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
-  SDL_QueueAudio(dev, buffer, length);
+  if ((dev = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0)) == 0) {
+    SDL_FreeWAV(buffer);
+    return (NULL);
+  }
+  if (SDL_QueueAudio(dev, buffer, length) != 0) {
+    SDL_CloseAudioDevice(dev);
+    SDL_FreeWAV(buffer);
+    return (NULL);
+  }
   SDL_PauseAudioDevice(dev, 0);
   while (SDL_GetQueuedAudioSize(dev) != 0)
     ;
